@@ -1,32 +1,36 @@
 /* ==========================================================================
    LGS İNGİLİZCE KAMP ATLASI — UYGULAMA MOTORU (js/app.js)
+   36 Bölüm Fasikül • 48 Okuma Parçası • 280+ İnteraktif Alıştırma
+   9×20 Ünite Testi (180 Soru) • 2×60 Büyük LGS Denemesi (120 Soru)
    ========================================================================== */
 
 (function () {
   "use strict";
 
-  const STORAGE_KEY = "lgs_english_atlas_state_v1";
+  const STORAGE_KEY = "lgs_english_atlas_state_v2";
 
   // Application State
   const state = {
-    activeView: "home", // 'home' | 'unit1' | 'unit2' | 'unit3' | 'vocab-lab' | 'grand-exam'
+    activeView: "home", // 'home' | 'unit1' | 'unit2' | 'unit3' | 'reading-hub' | 'vocab-lab' | 'grand-exam'
     unitSubMode: {
-      unit1: "lesson", // 'lesson' | 'vocab' | 'examples' | 'test'
+      unit1: "lesson", // 'lesson' | 'reading' | 'vocab' | 'examples' | 'activities' | 'test'
       unit2: "lesson",
       unit3: "lesson"
     },
+    activeUnitTestIdx: {
+      unit1: 0, // 0 = Test 1, 1 = Test 2, 2 = Test 3
+      unit2: 0,
+      unit3: 0
+    },
+    activeGrandExamIdx: 0, // 0 = Deneme 1 (60 Soru), 1 = Deneme 2 (60 Soru)
+    readingHubFilterUnit: "all", // 'all' | 'unit1' | 'unit2' | 'unit3'
     vocabFilterUnit: "all", // 'all' | 'unit1' | 'unit2' | 'unit3'
     vocabSearchQuery: "",
     flashcardIndex: 0,
     flashcardFlipped: false,
     testFilterDiff: "all", // 'all' | '1' | '2' | '3' | '4'
-    examCheckMode: "instant", // 'instant' (anında çözüm) | 'exam' (sınav sonu kontrol)
-    examSubmitted: {
-      unit1: false,
-      unit2: false,
-      unit3: false,
-      grandExam: false
-    },
+    examCheckMode: "instant", // 'instant' | 'exam'
+    examSubmitted: {},
     answers: {}, // questionId -> selectedOption ('A' | 'B' | 'C' | 'D')
     tfAnswers: {} // activityId -> boolean (true | false)
   };
@@ -39,6 +43,9 @@
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed.answers === "object") {
           state.answers = parsed.answers;
+        }
+        if (parsed && typeof parsed.tfAnswers === "object") {
+          state.tfAnswers = parsed.tfAnswers;
         }
         if (parsed && typeof parsed.examSubmitted === "object") {
           state.examSubmitted = Object.assign(state.examSubmitted, parsed.examSubmitted);
@@ -55,6 +62,7 @@
         STORAGE_KEY,
         JSON.stringify({
           answers: state.answers,
+          tfAnswers: state.tfAnswers,
           examSubmitted: state.examSubmitted
         })
       );
@@ -64,18 +72,20 @@
     updateTopStats();
   }
 
-  // Gather all 120 questions across Unit 1 (20), Unit 2 (20), Unit 3 (20), and Grand Exam (60)
+  // Normalize all data structures across base and expansion modules
   function normalizeAllData() {
     const d = window.LGS_DATA || {};
     ["unit1", "unit2", "unit3"].forEach((uKey, uIdx) => {
       const unitNum = uIdx + 1;
       const u = d[uKey];
       if (!u) return;
+
       if (Array.isArray(u.sections)) {
         u.sections.forEach((sec, sIdx) => {
           sec.tag = sec.tag || sec.badge || `BÖLÜM ${sIdx + 1}`;
         });
       }
+
       if (Array.isArray(u.vocabulary)) {
         u.vocabulary.forEach((cat) => {
           cat.items = cat.items || cat.words || [];
@@ -87,6 +97,7 @@
           });
         });
       }
+
       if (Array.isArray(u.workedExamples)) {
         u.workedExamples.forEach((ex, idx) => {
           ex.num = ex.num || ex.number || idx + 1;
@@ -94,6 +105,7 @@
           ex.solutionSteps = ex.solutionSteps || ex.steps || (ex.explanation ? [ex.explanation] : []);
         });
       }
+
       if (Array.isArray(u.unitTest)) {
         u.unitTest.forEach((q, idx) => {
           q.num = q.num || q.number || q.qNumber || idx + 1;
@@ -102,29 +114,102 @@
           q.correct = q.correct || q.answer || q.correctAnswer || "A";
         });
       }
+
+      if (Array.isArray(u.extraTests)) {
+        u.extraTests.forEach((tObj) => {
+          (tObj.questions || []).forEach((q, idx) => {
+            q.num = q.num || q.number || idx + 1;
+            q.unit = q.unit || unitNum;
+            q.topic = q.topic || q.category || q.tag || "LGS Beceri Temelli";
+            q.correct = q.correct || q.answer || q.correctAnswer || "A";
+          });
+        });
+      }
+
+      if (Array.isArray(u.readingPassages)) {
+        u.readingPassages.forEach((rp, idx) => {
+          rp.num = rp.num || idx + 1;
+          rp.unitNum = unitNum;
+          rp.unitTitle = u.title;
+          (rp.questions || []).forEach((rq, qIdx) => {
+            rq.num = rq.num || qIdx + 1;
+            rq.correct = rq.correct || rq.answer || "A";
+          });
+        });
+      }
+
+      if (Array.isArray(u.clozeExercises)) {
+        u.clozeExercises.forEach((cl, idx) => {
+          cl.num = cl.num || idx + 1;
+          cl.correct = cl.correct || cl.answer || "A";
+        });
+      }
     });
-    if (Array.isArray(d.grandExam)) {
-      d.grandExam.forEach((q, idx) => {
-        q.num = q.num || q.number || idx + 1;
-        q.unit = q.unit || "1-2-3";
-        q.topic = q.topic || q.tierTitle || "LGS Kapsamlı Deneme";
-        q.correct = q.correct || q.answer || "A";
-      });
-    }
+
+    [d.grandExam, d.grandExam2].forEach((examArr) => {
+      if (Array.isArray(examArr)) {
+        examArr.forEach((q, idx) => {
+          q.num = q.num || q.number || idx + 1;
+          q.unit = q.unit || "1-2-3";
+          q.topic = q.topic || q.tierTitle || "LGS Kapsamlı Deneme";
+          q.correct = q.correct || q.answer || "A";
+        });
+      }
+    });
   }
 
+  // Helper to get all 3 tests for a given unit
+  function getUnitTestsList(unitKey) {
+    const d = window.LGS_DATA || {};
+    const u = d[unitKey];
+    if (!u) return [];
+    const list = [
+      {
+        testId: `${unitKey}-test1`,
+        testNum: 1,
+        title: `${u.number}. Ünite (${u.title}) Tarama Testi - 1 (Temel, Orta & Yeni Nesil)`,
+        description: `${u.number}. ünitenin tüm temel kelimelerini, dil bilgisi yapılarını ve beceri temelli soru tiplerini kapsayan kademeli 1. test.`,
+        questions: u.unitTest || []
+      }
+    ];
+    if (Array.isArray(u.extraTests)) {
+      u.extraTests.forEach((et) => list.push(et));
+    }
+    return list;
+  }
+
+  // Gather all interactive multiple-choice questions across the platform
   function getAllQuestionsMap() {
     const map = {};
     const d = window.LGS_DATA || {};
     ["unit1", "unit2", "unit3"].forEach((uKey) => {
-      if (d[uKey] && Array.isArray(d[uKey].unitTest)) {
-        d[uKey].unitTest.forEach((q) => {
+      const tests = getUnitTestsList(uKey);
+      tests.forEach((t) => {
+        (t.questions || []).forEach((q) => {
           map[q.id] = q;
+        });
+      });
+      const u = d[uKey];
+      if (u && Array.isArray(u.readingPassages)) {
+        u.readingPassages.forEach((rp) => {
+          (rp.questions || []).forEach((rq) => {
+            map[rq.id] = rq;
+          });
+        });
+      }
+      if (u && Array.isArray(u.clozeExercises)) {
+        u.clozeExercises.forEach((cl) => {
+          map[cl.id] = cl;
         });
       }
     });
     if (Array.isArray(d.grandExam)) {
       d.grandExam.forEach((q) => {
+        map[q.id] = q;
+      });
+    }
+    if (Array.isArray(d.grandExam2)) {
+      d.grandExam2.forEach((q) => {
         map[q.id] = q;
       });
     }
@@ -134,7 +219,7 @@
   // Update top utility bar statistics
   function updateTopStats() {
     const qMap = getAllQuestionsMap();
-    const totalQuestions = Object.keys(qMap).length || 120;
+    const totalQuestions = Object.keys(qMap).length || 300;
     let solved = 0;
     let correct = 0;
     let wrong = 0;
@@ -177,15 +262,20 @@
   };
 
   // Switch primary view
-  function navigateTo(view, subMode) {
+  function navigateTo(view, subMode, testIdx) {
     state.activeView = view;
     state.testFilterDiff = "all";
 
     if (subMode && ["unit1", "unit2", "unit3"].includes(view)) {
       state.unitSubMode[view] = subMode;
     }
+    if (typeof testIdx === "number" && ["unit1", "unit2", "unit3"].includes(view)) {
+      state.activeUnitTestIdx[view] = testIdx;
+    }
+    if (typeof testIdx === "number" && view === "grand-exam") {
+      state.activeGrandExamIdx = testIdx;
+    }
 
-    // Update theme attribute on body
     if (view === "unit1" || view === "home") {
       document.body.setAttribute("data-unit-theme", "unit1");
     } else if (view === "unit2") {
@@ -196,7 +286,6 @@
       document.body.setAttribute("data-unit-theme", "exam");
     }
 
-    // Update active nav button
     document.querySelectorAll(".nav-tab").forEach((btn) => {
       btn.classList.toggle("active", btn.getAttribute("data-target") === view);
     });
@@ -225,38 +314,49 @@
     return { total: questions.length, solved, correct, wrong, net };
   }
 
+  // Get combined stats across all 3 tests of a unit
+  function getUnitAllTestsStats(unitKey) {
+    const tests = getUnitTestsList(unitKey);
+    const allQ = [];
+    tests.forEach((t) => {
+      (t.questions || []).forEach((q) => allQ.push(q));
+    });
+    return getQuestionSetStats(allQ);
+  }
+
   // ==========================================================================
   // VIEW 1: HOME OVERVIEW (KAMP REHBERİ & YOL HARİTASI)
   // ==========================================================================
   function renderHomeView() {
     const d = window.LGS_DATA || {};
-    const u1Stats = getQuestionSetStats(d.unit1 ? d.unit1.unitTest : []);
-    const u2Stats = getQuestionSetStats(d.unit2 ? d.unit2.unitTest : []);
-    const u3Stats = getQuestionSetStats(d.unit3 ? d.unit3.unitTest : []);
-    const geStats = getQuestionSetStats(d.grandExam || []);
+    const u1Stats = getUnitAllTestsStats("unit1");
+    const u2Stats = getUnitAllTestsStats("unit2");
+    const u3Stats = getUnitAllTestsStats("unit3");
+    const ge1Stats = getQuestionSetStats(d.grandExam || []);
+    const ge2Stats = getQuestionSetStats(d.grandExam2 || []);
 
     return `
       <!-- EDİTÖRYAL KAMP HERO PANELİ -->
       <section class="editorial-hero">
         <div>
           <div class="hero-eyebrow">
-            <span>★ MEB 8. SINIF İNGİLİZCE • 1. DÖNEM KAMP FASİKÜLÜ</span>
+            <span>★ MEB 8. SINIF İNGİLİZCE • DEV KAMP FASİKÜLÜ &amp; SORU BANKASI</span>
           </div>
           <h2>
-            Sınavda Fark Yaratan <span>Detaylı Konu Anlatımı</span> ve Kademeli LGS Soru Bankası
+            Sınavda Fark Yaratan <span>Detaylı Konu Anlatımı</span>, 48 Okuma Parçası ve 450+ Soru &amp; Alıştırma
           </h2>
           <p class="hero-lead">
-            8. Sınıf LGS İngilizce sınavının temel taşları olan <strong>1. Ünite (Friendship)</strong>, <strong>2. Ünite (Teen Life)</strong> ve <strong>3. Ünite (In the Kitchen)</strong> konularını; görsel şemalar, eş anlamlı (synonym) tuzakları, diyalog analizleri ve zorluğu adım adım artan <strong>toplam 120 beceri temelli soruyla</strong> eksiksiz öğrenin.
+            8. Sınıf LGS İngilizce sınavının temel taşları olan <strong>1. Ünite (Friendship)</strong>, <strong>2. Ünite (Teen Life)</strong> ve <strong>3. Ünite (In the Kitchen)</strong> konularını; görsel zihin haritaları, <strong>48 uzun okuma parçası</strong>, <strong>285+ interaktif alıştırma</strong>, her ünite sonunda <strong>3'er adet 20 soruluk test (9×20 = 180 soru)</strong> ve <strong>2 adet 60 soruluk Büyük LGS Deneme Sınavı (120 soru)</strong> ile eksiksiz tamamlayın.
           </p>
           <div class="hero-cta-row">
             <button type="button" class="btn-editorial primary" onclick="navigateTo('unit1', 'lesson')">
               📖 1. Ünite (Friendship) ile Başla →
             </button>
-            <button type="button" class="btn-editorial secondary" onclick="navigateTo('grand-exam')">
-              🏆 60 Soruluk Büyük LGS Denemesine Geç
+            <button type="button" class="btn-editorial secondary" onclick="navigateTo('reading-hub')">
+              📚 48 Okuma Parçası Atölyesi
             </button>
-            <button type="button" class="btn-editorial secondary" onclick="navigateTo('vocab-lab')">
-              🗂️ Kelime &amp; Eş Anlamlılar Atölyesi
+            <button type="button" class="btn-editorial secondary" onclick="navigateTo('grand-exam', null, 0)">
+              🏆 2×60 Soruluk Büyük LGS Denemeleri
             </button>
           </div>
         </div>
@@ -270,25 +370,25 @@
             </div>
           </div>
           <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:1.5px solid var(--border-strong); padding-bottom:0.65rem;">
-            <strong style="font-family:var(--font-serif); font-size:1.05rem;">📊 Zenginleştirilmiş Kamp Haritası</strong>
+            <strong style="font-family:var(--font-serif); font-size:1.05rem;">📊 Dev Kamp İçerik Haritası</strong>
             <span style="font-family:var(--font-mono); font-size:0.72rem; background:#DCFCE7; color:#166534; padding:0.15rem 0.5rem; border-radius:4px; font-weight:700;">%100 MEB UYUMLU</span>
           </div>
           <div class="blueprint-metrics">
             <div class="metric-box">
-              <div class="m-num" style="color:var(--u1-primary);">36 Bölüm</div>
-              <div class="m-label">Zihin Haritalı, Çizgi Romanlı &amp; Metin Analizli Fasikül</div>
+              <div class="m-num" style="color:var(--u1-primary);">36 Bölüm + 48 Metin</div>
+              <div class="m-label">Detaylı Konu Fasikülü &amp; Çift Dilli Okuma Parçaları</div>
             </div>
             <div class="metric-box">
-              <div class="m-num" style="color:var(--u2-primary);">42 Çözümlü</div>
-              <div class="m-label">Adım Adım Öğretmen Çözümlü Rehber Soru</div>
+              <div class="m-num" style="color:var(--u2-primary);">285+ Alıştırma</div>
+              <div class="m-label">Boşluk Doldurma, Doğru/Yanlış &amp; Çalışma Kağıtları</div>
             </div>
             <div class="metric-box">
-              <div class="m-num" style="color:var(--u3-primary);">3 × 20 Soru</div>
-              <div class="m-label">Her Ünite Sonunda Kademeli Tarama Testi</div>
+              <div class="m-num" style="color:var(--u3-primary);">9 × 20 Soru</div>
+              <div class="m-label">Her Ünitede 3 Ayrı Kademeli Test (180 Ünite Sorusu)</div>
             </div>
             <div class="metric-box">
-              <div class="m-num" style="color:var(--optik-pink);">60 Soru</div>
-              <div class="m-label">Ünite 1-2-3 Kapsamlı Büyük LGS Denemesi</div>
+              <div class="m-num" style="color:var(--optik-pink);">2 × 60 Soru</div>
+              <div class="m-label">2 Adet 60 Soruluk Büyük LGS Denemesi (120 Soru)</div>
             </div>
           </div>
         </div>
@@ -386,8 +486,8 @@
 
       <!-- ÜÇ ÜNİTE DETAYLI KARTLAR -->
       <div class="section-heading-bar">
-        <h3>📚 Üniteler ve Konu Fasikülleri (1., 2. ve 3. Ünite)</h3>
-        <span>HER ÜNİTE: 8 DETAYLI BÖLÜM + ÇÖZÜMLÜ ÖRNEKLER + 20 SORULUK TEST</span>
+        <h3>📚 Üniteler, Okuma Parçaları, Alıştırmalar ve 3'lü Ünite Testleri</h3>
+        <span>HER ÜNİTE: 12 BÖLÜM + 16 OKUMA PARÇASI + 65 ALIŞTIRMA + 3×20 TEST (60 SORU)</span>
       </div>
 
       <div class="units-overview-grid">
@@ -399,13 +499,6 @@
               <h4>Friendship</h4>
               <p>Arkadaşlık, Kişilik Özellikleri &amp; Davetler</p>
             </div>
-            <svg width="58" height="58" viewBox="0 0 80 80" fill="none" aria-hidden="true">
-              <circle cx="40" cy="40" r="36" fill="#FFFFFF" stroke="#C84B31" stroke-width="3"/>
-              <circle cx="29" cy="31" r="9" fill="#F4A261" stroke="#18181B" stroke-width="2.5"/>
-              <circle cx="51" cy="31" r="9" fill="#E76F51" stroke="#18181B" stroke-width="2.5"/>
-              <path d="M16 58C16 49 22 44 30 44C35 44 38 46 40 49C42 46 45 44 50 44C58 44 64 49 64 58" stroke="#18181B" stroke-width="3" stroke-linecap="round"/>
-              <path d="M34 20L40 14L46 20" stroke="#C84B31" stroke-width="2.5" stroke-linecap="round"/>
-            </svg>
           </div>
           <div class="dossier-body">
             <div>
@@ -413,26 +506,25 @@
                 <img src="assets/img/unit1-friendship.png" alt="Unit 1 Friendship İllüstrasyonu" style="height:155px;" onerror="this.parentElement.style.display='none'" />
               </div>
               <p style="font-size:0.86rem; color:var(--ink-secondary);">
-                İyi ve kötü arkadaş özellikleri, eş anlamlı deyimler (<em>count on, back up, get on well with</em>), davet etme, kabul/ret kalıpları, WhatsApp diyalogları ve davetiye kartı analizi.
+                12 detaylı konu bölümü, 16 uzun okuma metni (+20 metin sorusu), 65 interaktif alıştırma, 14 çözümlü rehber soru ve <strong>3 ayrı 20 soruluk kademeli test (60 soru)</strong>.
               </p>
               <ul class="dossier-topics-list">
-                <li><strong>Personal Traits:</strong> Honest, reliable, tactful, sneaky, laid-back, stubborn</li>
-                <li><strong>Accepting &amp; Refusing:</strong> "Why not?", "I'd love to, but...", "I'm stuffed"</li>
-                <li><strong>Invitation Cards:</strong> Sender (Inviter) vs. Receiver (Invitee), Fee, Deadline</li>
-                <li><strong>Grammar &amp; Cafe:</strong> Future plans (<em>be going to</em>) &amp; Restaurant Menu orders</li>
+                <li><strong>Personal Traits &amp; Idioms:</strong> Honest, reliable, sneaky, laid-back, count on, back up</li>
+                <li><strong>Okuma &amp; Alıştırma:</strong> 16 Çift Dilli Metin + 30 Boşluk Doldurma + 35 Doğru/Yanlış</li>
+                <li><strong>3 Ayrı Ünite Testi:</strong> Test 1 (20) • Test 2 (20) • Test 3 Zirve (20)</li>
               </ul>
             </div>
             <div>
               <div style="display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:0.75rem; margin-bottom:0.5rem; color:var(--ink-muted);">
-                <span>Ünite Testi İlerlemesi:</span>
+                <span>3 Test İlerlemesi:</span>
                 <strong style="color:var(--u1-primary);">${u1Stats.solved} / ${u1Stats.total} Çözüldü (${u1Stats.correct} D)</strong>
               </div>
               <div class="dossier-actions">
-                <button type="button" class="btn-editorial primary" style="background:var(--u1-primary); font-size:0.82rem; padding:0.6rem 0.8rem; justify-content:center;" onclick="navigateTo('unit1', 'lesson')">
-                  📖 Konu Anlatımı
+                <button type="button" class="btn-editorial primary" style="background:var(--u1-primary); font-size:0.8rem; padding:0.55rem 0.65rem; justify-content:center;" onclick="navigateTo('unit1', 'lesson')">
+                  📖 Konu &amp; Okuma
                 </button>
-                <button type="button" class="btn-editorial secondary" style="font-size:0.82rem; padding:0.6rem 0.8rem; justify-content:center;" onclick="navigateTo('unit1', 'test')">
-                  ✍️ 20 Soruluk Test
+                <button type="button" class="btn-editorial secondary" style="font-size:0.8rem; padding:0.55rem 0.65rem; justify-content:center;" onclick="navigateTo('unit1', 'test', 0)">
+                  ✍️ 3 Test (60 Soru)
                 </button>
               </div>
             </div>
@@ -447,13 +539,6 @@
               <h4>Teen Life</h4>
               <p>Gençlik Hayatı, Rutinler, Tercihler &amp; Kamp</p>
             </div>
-            <svg width="58" height="58" viewBox="0 0 80 80" fill="none" aria-hidden="true">
-              <circle cx="40" cy="40" r="36" fill="#FFFFFF" stroke="#1E5F4B" stroke-width="3"/>
-              <path d="M18 58L40 22L62 58H18Z" fill="#A7F3D0" stroke="#18181B" stroke-width="2.5" stroke-linejoin="round"/>
-              <path d="M40 22V58" stroke="#18181B" stroke-width="2"/>
-              <path d="M33 58L40 43L47 58" fill="#F59E0B" stroke="#18181B" stroke-width="2"/>
-              <circle cx="56" cy="24" r="5" fill="#FBBF24" stroke="#18181B" stroke-width="2"/>
-            </svg>
           </div>
           <div class="dossier-body">
             <div>
@@ -461,26 +546,25 @@
                 <img src="assets/img/unit2-teenlife.png" alt="Unit 2 Teen Life İllüstrasyonu" style="height:155px;" onerror="this.parentElement.style.display='none'" />
               </div>
               <p style="font-size:0.86rem; color:var(--ink-secondary);">
-                Günlük rutinler, Geniş Zaman (Simple Present), sıklık zarfları, <em>prefer</em> ve <em>would rather</em> tercih kalıpları, görüş sıfatları (<em>terrific vs. unbearable</em>), kamp ekipmanları ve LGS grafik okuma.
+                12 detaylı konu bölümü, 16 uzun okuma metni (+20 metin sorusu), 65 interaktif alıştırma, 14 çözümlü rehber soru ve <strong>3 ayrı 20 soruluk kademeli test (60 soru)</strong>.
               </p>
               <ul class="dossier-topics-list">
-                <li><strong>Frequency Adverbs:</strong> Always, usually, often, rarely, seldom, hardly ever</li>
-                <li><strong>Preferences:</strong> <em>prefer + V-ing to V-ing</em> vs. <em>would rather + V1 than V1</em></li>
-                <li><strong>Opinions Trap:</strong> <em>Terrific / Awesome / Trendy</em> vs. <em>Unbearable / Ridiculous</em></li>
-                <li><strong>LGS Charts:</strong> <em>Nearly all, More than half, A quarter, Nobody</em></li>
+                <li><strong>Routines &amp; Preferences:</strong> Frequency adverbs, Prefer vs. Would Rather, Terrific/Unbearable</li>
+                <li><strong>Okuma &amp; Alıştırma:</strong> 16 Çift Dilli Metin + 30 Boşluk Doldurma + 35 Doğru/Yanlış</li>
+                <li><strong>3 Ayrı Ünite Testi:</strong> Test 1 (20) • Test 2 (20) • Test 3 Zirve (20)</li>
               </ul>
             </div>
             <div>
               <div style="display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:0.75rem; margin-bottom:0.5rem; color:var(--ink-muted);">
-                <span>Ünite Testi İlerlemesi:</span>
+                <span>3 Test İlerlemesi:</span>
                 <strong style="color:var(--u2-primary);">${u2Stats.solved} / ${u2Stats.total} Çözüldü (${u2Stats.correct} D)</strong>
               </div>
               <div class="dossier-actions">
-                <button type="button" class="btn-editorial primary" style="background:var(--u2-primary); font-size:0.82rem; padding:0.6rem 0.8rem; justify-content:center;" onclick="navigateTo('unit2', 'lesson')">
-                  📖 Konu Anlatımı
+                <button type="button" class="btn-editorial primary" style="background:var(--u2-primary); font-size:0.8rem; padding:0.55rem 0.65rem; justify-content:center;" onclick="navigateTo('unit2', 'lesson')">
+                  📖 Konu &amp; Okuma
                 </button>
-                <button type="button" class="btn-editorial secondary" style="font-size:0.82rem; padding:0.6rem 0.8rem; justify-content:center;" onclick="navigateTo('unit2', 'test')">
-                  ✍️ 20 Soruluk Test
+                <button type="button" class="btn-editorial secondary" style="font-size:0.8rem; padding:0.55rem 0.65rem; justify-content:center;" onclick="navigateTo('unit2', 'test', 0)">
+                  ✍️ 3 Test (60 Soru)
                 </button>
               </div>
             </div>
@@ -495,13 +579,6 @@
               <h4>In the Kitchen</h4>
               <p>Yemek Tarifleri, Pişirme &amp; Mutfak Gereçleri</p>
             </div>
-            <svg width="58" height="58" viewBox="0 0 80 80" fill="none" aria-hidden="true">
-              <circle cx="40" cy="40" r="36" fill="#FFFFFF" stroke="#B85D19" stroke-width="3"/>
-              <rect x="20" y="36" width="40" height="24" rx="5" fill="#FDBA74" stroke="#18181B" stroke-width="2.5"/>
-              <path d="M14 40H20M60 40H66" stroke="#18181B" stroke-width="3" stroke-linecap="round"/>
-              <path d="M24 32C24 27 31 24 40 24C49 24 56 27 56 32" stroke="#18181B" stroke-width="2.5"/>
-              <path d="M32 19C32 16 34 15 34 12M40 19C40 16 42 15 42 12M48 19C48 16 50 15 50 12" stroke="#B85D19" stroke-width="2.2" stroke-linecap="round"/>
-            </svg>
           </div>
           <div class="dossier-body">
             <div>
@@ -509,26 +586,25 @@
                 <img src="assets/img/unit3-kitchen.png" alt="Unit 3 In the Kitchen İllüstrasyonu" style="height:155px;" onerror="this.parentElement.style.display='none'" />
               </div>
               <p style="font-size:0.86rem; color:var(--ink-secondary);">
-                6 pişirme yöntemi, 16 görsel mutfak aracı, doğrama ve hazırlama fiilleri, sıralama bağlaçları (<em>First, Second, Next, Then, After that, Finally</em>), tatlar ve yemek tarifleri.
+                12 detaylı konu bölümü, 10 resimli tarif + 10 gastronomi metni (+20 soru), 65 interaktif alıştırma, 14 çözümlü rehber soru ve <strong>3 ayrı 20 soruluk kademeli test (60 soru)</strong>.
               </p>
               <ul class="dossier-topics-list">
-                <li><strong>Cooking Methods:</strong> Bake, Roast, Grill, Boil, Steam, Fry</li>
-                <li><strong>Kitchen Tools:</strong> Grater, Peeler, Strainer/Colander, Whisk, Rolling pin</li>
-                <li><strong>Prep Verbs:</strong> Dice, slice, chop, mince, peel, knead, mash, drain, sprinkle</li>
-                <li><strong>LGS Process Trap:</strong> <em>Before</em> vs. <em>After</em> step &amp; <em>Have a sweet tooth</em></li>
+                <li><strong>Cooking &amp; Tools:</strong> Bake, Roast, Steam, Strainer, Grater, Whisk, First → Finally</li>
+                <li><strong>Okuma &amp; Alıştırma:</strong> 10 Tarif + 10 Metin + 30 Boşluk Doldurma + 35 Doğru/Yanlış</li>
+                <li><strong>3 Ayrı Ünite Testi:</strong> Test 1 (20) • Test 2 (20) • Test 3 Zirve (20)</li>
               </ul>
             </div>
             <div>
               <div style="display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:0.75rem; margin-bottom:0.5rem; color:var(--ink-muted);">
-                <span>Ünite Testi İlerlemesi:</span>
+                <span>3 Test İlerlemesi:</span>
                 <strong style="color:var(--u3-primary);">${u3Stats.solved} / ${u3Stats.total} Çözüldü (${u3Stats.correct} D)</strong>
               </div>
               <div class="dossier-actions">
-                <button type="button" class="btn-editorial primary" style="background:var(--u3-primary); font-size:0.82rem; padding:0.6rem 0.8rem; justify-content:center;" onclick="navigateTo('unit3', 'lesson')">
-                  📖 Konu Anlatımı
+                <button type="button" class="btn-editorial primary" style="background:var(--u3-primary); font-size:0.8rem; padding:0.55rem 0.65rem; justify-content:center;" onclick="navigateTo('unit3', 'lesson')">
+                  📖 Konu &amp; Okuma
                 </button>
-                <button type="button" class="btn-editorial secondary" style="font-size:0.82rem; padding:0.6rem 0.8rem; justify-content:center;" onclick="navigateTo('unit3', 'test')">
-                  ✍️ 20 Soruluk Test
+                <button type="button" class="btn-editorial secondary" style="font-size:0.8rem; padding:0.55rem 0.65rem; justify-content:center;" onclick="navigateTo('unit3', 'test', 0)">
+                  ✍️ 3 Test (60 Soru)
                 </button>
               </div>
             </div>
@@ -536,193 +612,43 @@
         </article>
       </div>
 
-      <!-- 60 SORULUK BÜYÜK LGS MARATON DENEMESİ TANITIM PANELİ -->
+      <!-- 2 ADET 60 SORULUK BÜYÜK LGS MARATON DENEMESİ (120 SORU) TANITIM PANELİ -->
       <section style="background:linear-gradient(135deg, #18181B 0%, #27272A 100%); color:#FFFFFF; border:2px solid var(--ink-primary); border-radius:var(--radius-lg); padding:2.25rem; margin-bottom:3rem; box-shadow:6px 6px 0px var(--optik-pink);">
-        <div style="display:grid; grid-template-columns:1.5fr 1fr; gap:2rem; align-items:center;">
+        <div style="display:grid; grid-template-columns:1.4fr 1fr; gap:2rem; align-items:center;">
           <div>
             <span style="font-family:var(--font-mono); font-size:0.75rem; background:var(--optik-pink); color:#FFFFFF; padding:0.25rem 0.65rem; border-radius:4px; font-weight:800;">
-              BÜYÜK FİNAL • 60 SORULUK KADEMELİ LGS SİMÜLASYONU
+              BÜYÜK FİNAL • 2 ADET 60 SORULUK KADEMELİ LGS SİMÜLASYONU (120 SORU)
             </span>
-            <h3 style="font-family:var(--font-serif); font-size:2rem; margin:0.75rem 0; color:#FFFFFF;">
-              1., 2. ve 3. Ünite Kapsamlı 60 Soruluk Büyük LGS Deneme Sınavı
+            <h3 style="font-family:var(--font-serif); font-size:1.95rem; margin:0.75rem 0; color:#FFFFFF;">
+              1., 2. ve 3. Ünite Kapsamlı 2 Büyük LGS Deneme Sınavı (Deneme-1 &amp; Deneme-2)
             </h3>
             <p style="color:#D4D4D8; font-size:0.95rem; margin-bottom:1.25rem;">
-              Üç üniteyi bitirdikten sonra bilginizi gerçek sınav formatında test edin. Sorular 1. sorudan 60. soruya doğru <strong>kademeli olarak zorlaşacak şekilde</strong> (4 zorluk kademesi) kurgulanmıştır ve interaktif <strong>MEB Optik Form</strong> ile tam analiz sunar.
+              Her biri 60 sorudan oluşan iki ayrı Türkiye Geneli LGS Kamp Denemesi! Sorular 1. sorudan 60. soruya doğru <strong>4 zorluk kademesinde</strong> (Kolay → Orta → Orta-Zor → LGS Derece) zorlaşır.
             </p>
-            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:0.75rem; margin-bottom:1.5rem;">
-              <div style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.18); padding:0.75rem; border-radius:6px;">
-                <div style="font-family:var(--font-mono); font-size:0.72rem; color:#86EFAC; font-weight:700;">SORU 1 – 15 (KOLAY)</div>
-                <div style="font-size:0.83rem; margin-top:0.2rem;">Temel Kelime, Eş Anlamlılar &amp; Kısa Diyalog</div>
-              </div>
-              <div style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.18); padding:0.75rem; border-radius:6px;">
-                <div style="font-family:var(--font-mono); font-size:0.72rem; color:#FDE047; font-weight:700;">SORU 16 – 30 (ORTA)</div>
-                <div style="font-size:0.83rem; margin-top:0.2rem;">Davetiye Kartı, Rutinler &amp; Tarif Sıralama</div>
-              </div>
-              <div style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.18); padding:0.75rem; border-radius:6px;">
-                <div style="font-family:var(--font-mono); font-size:0.72rem; color:#FDBA74; font-weight:700;">SORU 31 – 45 (ORTA-ZOR)</div>
-                <div style="font-size:0.83rem; margin-top:0.2rem;">Beceri Temelli Tablo, Sütun Grafiği &amp; Çıkarım</div>
-              </div>
-              <div style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.18); padding:0.75rem; border-radius:6px;">
-                <div style="font-family:var(--font-mono); font-size:0.72rem; color:#FCA5A5; font-weight:700;">SORU 46 – 60 (LGS DERECE)</div>
-                <div style="font-size:0.83rem; margin-top:0.2rem;">Çoklu Kısıt &amp; Üniteler Arası Yeni Nesil Sentez</div>
-              </div>
+            <div style="display:flex; flex-wrap:wrap; gap:0.85rem;">
+              <button type="button" class="btn-editorial primary" style="background:var(--optik-pink); border-color:#FFFFFF;" onclick="navigateTo('grand-exam', null, 0)">
+                🚀 Büyük LGS Denemesi - 1 (${ge1Stats.solved}/60) →
+              </button>
+              <button type="button" class="btn-editorial secondary" style="background:#FFFFFF; color:#18181B;" onclick="navigateTo('grand-exam', null, 1)">
+                🔥 Büyük LGS Denemesi - 2 (${ge2Stats.solved}/60) →
+              </button>
             </div>
-            <button type="button" class="btn-editorial primary" style="background:var(--optik-pink); border-color:#FFFFFF;" onclick="navigateTo('grand-exam')">
-              🚀 60 Soruluk Büyük LGS Denemesini Başlat (${geStats.solved}/60 Çözüldü) →
-            </button>
           </div>
 
           <div style="background:#FFF9FB; color:var(--ink-primary); border:2px solid var(--optik-pink); border-radius:var(--radius-md); padding:1.35rem;">
             <div style="font-family:var(--font-mono); font-size:0.78rem; font-weight:800; color:var(--optik-pink); text-align:center; border-bottom:1.5px dashed #F9A8D4; padding-bottom:0.5rem; margin-bottom:0.85rem;">
-              MEB LGS DENEME DURUMUNUZ
+              2 BÜYÜK DENEME PERFORMANS ÖZETİ (120 SORU)
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.65rem; font-family:var(--font-mono); font-size:0.8rem;">
               <div style="background:#FFFFFF; padding:0.65rem; border-radius:4px; border:1px solid #FBCFE8;">
-                Çözülen Soru: <strong style="display:block; font-size:1.25rem; color:var(--ink-primary);">${geStats.solved} / 60</strong>
+                Deneme-1: <strong style="display:block; font-size:1.1rem; color:var(--ink-primary);">${ge1Stats.solved}/60 (${ge1Stats.net} Net)</strong>
               </div>
               <div style="background:#FFFFFF; padding:0.65rem; border-radius:4px; border:1px solid #FBCFE8;">
-                LGS Netiniz: <strong style="display:block; font-size:1.25rem; color:var(--optik-pink);">${geStats.net} Net</strong>
-              </div>
-              <div style="background:#DCFCE7; padding:0.65rem; border-radius:4px; color:#166534;">
-                Doğru: <strong style="font-size:1rem;">${geStats.correct}</strong>
-              </div>
-              <div style="background:#FEE2E2; padding:0.65rem; border-radius:4px; color:#991B1B;">
-                Yanlış: <strong style="font-size:1rem;">${geStats.wrong}</strong>
+                Deneme-2: <strong style="display:block; font-size:1.1rem; color:var(--optik-pink);">${ge2Stats.solved}/60 (${ge2Stats.net} Net)</strong>
               </div>
             </div>
           </div>
         </div>
-      </section>
-
-      <!-- LGS ALTIN EŞ ANLAMLILAR (GOLDEN SYNONYMS) HIZLI BAKIŞ TABLOSU -->
-      <section>
-        <div class="section-heading-bar">
-          <h3>🔑 LGS'de En Çok Sorulan 18 Altın Eş Anlamlı (Synonyms) Tablosu</h3>
-          <span>SORU KÖKÜNDEKİ KELİME İLE ŞIKTAKİ KELİMEYİ EŞLEŞTİRME REHBERİ</span>
-        </div>
-        <p style="margin-bottom:1rem; color:var(--ink-secondary); font-size:0.92rem;">
-          MEB LGS İngilizce sorularında metinde geçen kelimenin birebir aynısı şıklarda <strong>verilmez</strong>; onun yerine eş anlamlısı (synonym) veya yakın anlamlı açıklaması kullanılır. Aşağıdaki 18 altın eşleştirmeyi adınız gibi bilmelisiniz:
-        </p>
-        <table class="lgs-table">
-          <thead>
-            <tr>
-              <th>Ünite</th>
-              <th>Metinde Geçen İfade</th>
-              <th>Şıklarda Aramanız Gereken Eş Anlamlısı (Synonym)</th>
-              <th>Türkçe Karşılığı &amp; LGS İpucu</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><span class="pill-subj">Ünite 1</span></td>
-              <td><strong>count on / rely on</strong></td>
-              <td><span class="hl-green">trust / depend on</span></td>
-              <td>Güvenmek (Sırlarını paylaşabilmek, asla yalan söylememek)</td>
-            </tr>
-            <tr>
-              <td><span class="pill-subj">Ünite 1</span></td>
-              <td><strong>back up</strong></td>
-              <td><span class="hl-green">support / help / stand by / give a hand</span></td>
-              <td>Desteklemek, zor zamanında yanında olmak (<em>in times of trouble</em>)</td>
-            </tr>
-            <tr>
-              <td><span class="pill-subj">Ünite 1</span></td>
-              <td><strong>laid-back</strong></td>
-              <td><span class="hl-green">relaxed / calm / carefree / never panics</span></td>
-              <td>Rahat, kaygısız, asla telaş yapmayan</td>
-            </tr>
-            <tr>
-              <td><span class="pill-subj">Ünite 1</span></td>
-              <td><strong>have a lot in common</strong></td>
-              <td><span class="hl-green">share similar interests / have the same hobbies</span></td>
-              <td>Çok ortak noktası olmak, benzer zevkleri paylaşmak</td>
-            </tr>
-            <tr>
-              <td><span class="pill-subj">Ünite 1</span></td>
-              <td><strong>slumber party</strong></td>
-              <td><span class="hl-green">pajama party / sleepover</span></td>
-              <td>Pijama / yatıya kalma partisi</td>
-            </tr>
-            <tr>
-              <td><span class="pill-subj">Ünite 1</span></td>
-              <td><strong>I'm stuffed!</strong></td>
-              <td><span class="hl-green">I'm full / I can't eat anything else</span></td>
-              <td>Karnım çok tok! (Yemek teklifini reddederken kullanılır)</td>
-            </tr>
-            <tr>
-              <td><span class="pill-verb">Ünite 2</span></td>
-              <td><strong>terrific / fascinating</strong></td>
-              <td><span class="hl-green">awesome / great / impressive / wonderful</span></td>
-              <td>Harika, muhteşem (⚠️ <em>Terrible</em> = Berbat ile asla karıştırmayın!)</td>
-            </tr>
-            <tr>
-              <td><span class="pill-verb">Ünite 2</span></td>
-              <td><strong>unbearable</strong></td>
-              <td><span class="hl-coral">awful / terrible / can't stand / loud &amp; boring</span></td>
-              <td>Dayanılmaz, katlanılmaz (Olumsuz görüş!)</td>
-            </tr>
-            <tr>
-              <td><span class="pill-verb">Ünite 2</span></td>
-              <td><strong>keen on / fond of</strong></td>
-              <td><span class="hl-green">interested in / crazy about / enjoy / into</span></td>
-              <td>Düşkün olmak, çok sevmek (+ V-ing alır)</td>
-            </tr>
-            <tr>
-              <td><span class="pill-verb">Ünite 2</span></td>
-              <td><strong>seldom / rarely / hardly ever</strong></td>
-              <td><span class="hl-coral">almost never / not often / dislike</span></td>
-              <td>Nadiren, neredeyse hiç (Cümleye OLUMSUZ anlam katar!)</td>
-            </tr>
-            <tr>
-              <td><span class="pill-verb">Ünite 2</span></td>
-              <td><strong>more than half</strong></td>
-              <td><span class="hl-blue">51% – 75% (over 50 percent)</span></td>
-              <td>Yarısından fazlası (Grafik sorularının 1 numaralı kalıbı)</td>
-            </tr>
-            <tr>
-              <td><span class="pill-verb">Ünite 2</span></td>
-              <td><strong>pitch a tent</strong></td>
-              <td><span class="hl-green">set up a tent / build a camp</span></td>
-              <td>Çadır kurmak</td>
-            </tr>
-            <tr>
-              <td><span class="pill-obj">Ünite 3</span></td>
-              <td><strong>dice / cube</strong></td>
-              <td><span class="hl-green">cut into small squares</span></td>
-              <td>Küp küp doğramak (Bıçak ve kesme tahtası gerektirir)</td>
-            </tr>
-            <tr>
-              <td><span class="pill-obj">Ünite 3</span></td>
-              <td><strong>peel</strong></td>
-              <td><span class="hl-green">take off / remove the skin of vegetables or fruits</span></td>
-              <td>Kabuğunu soymak (<em>Peeler</em> veya bıçak kullanılır)</td>
-            </tr>
-            <tr>
-              <td><span class="pill-obj">Ünite 3</span></td>
-              <td><strong>drain / strain</strong></td>
-              <td><span class="hl-green">separate water from pasta/vegetables using a strainer</span></td>
-              <td>Suyunu süzmek (<em>Strainer / Colander</em> = Süzgeç ile)</td>
-            </tr>
-            <tr>
-              <td><span class="pill-obj">Ünite 3</span></td>
-              <td><strong>have a sweet tooth</strong></td>
-              <td><span class="hl-green">love eating desserts, chocolate, cake, pudding</span></td>
-              <td>Tatlıya çok düşkün olmak</td>
-            </tr>
-            <tr>
-              <td><span class="pill-obj">Ünite 3</span></td>
-              <td><strong>greasy / fatty</strong></td>
-              <td><span class="hl-coral">oily / cooked in too much oil (fried food)</span></td>
-              <td>Çok yağlı (Genelde sağlıksız / <em>unhealthy</em> olarak eşleşir)</td>
-            </tr>
-            <tr>
-              <td><span class="pill-obj">Ünite 3</span></td>
-              <td><strong>ingredients</strong></td>
-              <td><span class="hl-blue">what is in the dish / things you need to make a dish</span></td>
-              <td>İçindekiler / Malzeme listesi (<em>Process</em> = Yapılış aşamaları)</td>
-            </tr>
-          </tbody>
-        </table>
       </section>
     `;
   }
@@ -735,21 +661,25 @@
     const unitData = d[unitKey];
 
     if (!unitData) {
-      return `<div class="lesson-callout lgs-trap">Ünite verisi yükleniyor veya bulunamadı (${unitKey}).</div>`;
+      return `<div class="lesson-callout lgs-trap">Ünite verisi yükleniyor (${unitKey}).</div>`;
     }
 
     const subMode = state.unitSubMode[unitKey] || "lesson";
-    const testStats = getQuestionSetStats(unitData.unitTest || []);
+    const allTestsStats = getUnitAllTestsStats(unitKey);
     const artMap = {
       unit1: "assets/img/unit1-friendship.png",
       unit2: "assets/img/unit2-teenlife.png",
       unit3: "assets/img/unit3-kitchen.png"
     };
     const unitArtPath = artMap[unitKey] || "assets/img/hero-lgs-camp.png";
+    const rpCount = (unitData.readingPassages || []).length;
+    const actCount = (unitData.clozeExercises || []).length + (unitData.quickActivities || []).length;
 
     let bodyHtml = "";
     if (subMode === "lesson") {
       bodyHtml = renderUnitLessonReader(unitKey, unitData);
+    } else if (subMode === "reading") {
+      bodyHtml = renderUnitReadingStudio(unitKey, unitData);
     } else if (subMode === "vocab") {
       bodyHtml = renderUnitVocabularyView(unitKey, unitData);
     } else if (subMode === "examples") {
@@ -757,7 +687,7 @@
     } else if (subMode === "activities") {
       bodyHtml = renderUnitQuickActivities(unitKey, unitData);
     } else if (subMode === "test") {
-      bodyHtml = renderQuestionTestRunner(unitKey, `${unitData.number}. Ünite (${unitData.title}) Değerlendirme Testi`, unitData.unitTest || []);
+      bodyHtml = renderUnitMultiTestView(unitKey, unitData);
     }
 
     return `
@@ -765,21 +695,24 @@
       <section class="unit-workspace-header">
         <div class="unit-header-top">
           <span class="unit-kicker">${unitData.badgeText}</span>
-          <div class="unit-submode-switcher" role="tablist">
+          <div class="unit-submode-switcher" role="tablist" style="flex-wrap:wrap;">
             <button type="button" class="submode-btn ${subMode === "lesson" ? "active" : ""}" onclick="setUnitSubMode('${unitKey}', 'lesson')">
               📚 Detaylı Konu (${(unitData.sections || []).length} Bölüm)
             </button>
-            <button type="button" class="submode-btn ${subMode === "vocab" ? "active" : ""}" onclick="setUnitSubMode('${unitKey}', 'vocab')">
-              🗂️ Kelime &amp; Telaffuz
+            <button type="button" class="submode-btn ${subMode === "reading" ? "active" : ""}" onclick="setUnitSubMode('${unitKey}', 'reading')">
+              📖 Okuma Parçaları (${rpCount + 6} Metin)
+            </button>
+            <button type="button" class="submode-btn ${subMode === "activities" ? "active" : ""}" onclick="setUnitSubMode('${unitKey}', 'activities')">
+              🎯 Alıştırmalar (${actCount})
             </button>
             <button type="button" class="submode-btn ${subMode === "examples" ? "active" : ""}" onclick="setUnitSubMode('${unitKey}', 'examples')">
               💡 Çözümlü Rehber (${(unitData.workedExamples || []).length})
             </button>
-            <button type="button" class="submode-btn ${subMode === "activities" ? "active" : ""}" onclick="setUnitSubMode('${unitKey}', 'activities')">
-              🎯 Doğru/Yanlış Etkinlik (${(unitData.quickActivities || []).length || 15})
+            <button type="button" class="submode-btn ${subMode === "vocab" ? "active" : ""}" onclick="setUnitSubMode('${unitKey}', 'vocab')">
+              🗂️ Kelime &amp; Telaffuz
             </button>
             <button type="button" class="submode-btn ${subMode === "test" ? "active" : ""}" onclick="setUnitSubMode('${unitKey}', 'test')">
-              ✍️ 20 Soruluk Test (${testStats.solved}/${testStats.total})
+              ✍️ 3 Ünite Testi (${allTestsStats.solved}/${allTestsStats.total})
             </button>
           </div>
         </div>
@@ -819,13 +752,13 @@
     window.scrollTo({ top: 140, behavior: "smooth" });
   };
 
-  // Sub-view 2A: Detailed Lesson Reader (8 Chapters + Sidebar TOC)
+  // Sub-view 2A: Detailed Lesson Reader (12 Chapters + Sidebar TOC)
   function renderUnitLessonReader(unitKey, unitData) {
     const sections = unitData.sections || [];
     return `
       <div class="unit-reader-grid">
         <aside class="unit-toc-sidebar">
-          <div class="toc-heading">📑 ÜNİTE KONU BAŞLIKLARI</div>
+          <div class="toc-heading">📑 ÜNİTE KONU BAŞLIKLARI (${sections.length} BÖLÜM)</div>
           <ul class="toc-list">
             ${sections
               .map(
@@ -842,14 +775,14 @@
           </ul>
 
           <div style="margin-top:1.25rem; padding-top:1rem; border-top:1.5px dashed var(--border-strong); display:flex; flex-direction:column; gap:0.5rem;">
-            <button type="button" class="btn-editorial secondary" style="width:100%; justify-content:center; font-size:0.8rem; padding:0.55rem;" onclick="setUnitSubMode('${unitKey}', 'vocab')">
-              🗂️ Ünite Kelime Kartlarına Geç
+            <button type="button" class="btn-editorial secondary" style="width:100%; justify-content:center; font-size:0.8rem; padding:0.55rem;" onclick="setUnitSubMode('${unitKey}', 'reading')">
+              📖 Okuma Parçaları Atölyesi →
             </button>
-            <button type="button" class="btn-editorial secondary" style="width:100%; justify-content:center; font-size:0.8rem; padding:0.55rem;" onclick="setUnitSubMode('${unitKey}', 'examples')">
-              💡 Çözümlü Örnek Sorulara Geç
+            <button type="button" class="btn-editorial secondary" style="width:100%; justify-content:center; font-size:0.8rem; padding:0.55rem;" onclick="setUnitSubMode('${unitKey}', 'activities')">
+              🎯 İnteraktif Alıştırmalar →
             </button>
             <button type="button" class="btn-editorial primary" style="width:100%; justify-content:center; font-size:0.82rem; padding:0.6rem; background:var(--theme-primary);" onclick="setUnitSubMode('${unitKey}', 'test')">
-              ✍️ 20 Soruluk Ünite Testini Çöz →
+              ✍️ 3×20 Soruluk Ünite Testleri →
             </button>
           </div>
         </aside>
@@ -872,20 +805,22 @@
             )
             .join("")}
 
-          <!-- BÖLÜM SONU YÖNLENDİRME KARTI -->
           <div style="background:var(--bg-surface); border:2px solid var(--ink-primary); border-radius:var(--radius-md); padding:1.75rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem; box-shadow:var(--shadow-paper);">
             <div>
-              <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--theme-primary); font-weight:800;">TEBRİKLER! KONU ANLATIMINI TAMAMLADINIZ</span>
+              <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--theme-primary); font-weight:800;">KONU FASİKÜLÜNÜ TAMAMLADINIZ!</span>
               <h4 style="font-family:var(--font-serif); font-size:1.35rem; margin-top:0.2rem;">
-                Şimdi sıra öğrendiklerinizi LGS tipi sorularla pekiştirmekte!
+                Şimdi Okuma Parçaları, Alıştırmalar ve 3 Ayrı Ünite Testi (60 Soru) ile devam edin!
               </h4>
             </div>
             <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-              <button type="button" class="btn-editorial secondary" onclick="setUnitSubMode('${unitKey}', 'examples')">
-                💡 8 Çözümlü Rehber Soruyu İncele
+              <button type="button" class="btn-editorial secondary" onclick="setUnitSubMode('${unitKey}', 'reading')">
+                📖 Okuma Parçalarına Geç
+              </button>
+              <button type="button" class="btn-editorial secondary" onclick="setUnitSubMode('${unitKey}', 'activities')">
+                🎯 65 Alıştırmayı Çöz
               </button>
               <button type="button" class="btn-editorial primary" style="background:var(--theme-primary);" onclick="setUnitSubMode('${unitKey}', 'test')">
-                ✍️ 20 Soruluk ${unitData.title} Testine Başla →
+                ✍️ 3 Ünite Testine Başla (60 Soru) →
               </button>
             </div>
           </div>
@@ -903,7 +838,132 @@
     }
   };
 
-  // Sub-view 2B: Unit Vocabulary & Pronunciation Cards
+  // Sub-view 2B: Unit Reading Passages Studio (Okuma Parçaları + Çeviri + 2'şer Soru)
+  function renderUnitReadingStudio(unitKey, unitData) {
+    const passages = unitData.readingPassages || [];
+    return `
+      <div class="vocab-controls-bar">
+        <div>
+          <strong style="font-family:var(--font-serif); font-size:1.2rem;">
+            📖 ${unitData.number}. Ünite (${unitData.title}) Çift Dilli Okuma Parçaları &amp; Metin Soruları (${passages.length} Yeni Metin + Bölüm 10'daki 6 Metin)
+          </strong>
+          <p style="font-size:0.86rem; color:var(--ink-secondary);">
+            Her okuma parçasının sol sütununda vurgulu İngilizce metin, sağ sütununda tam Türkçe çevirisi ve altında <strong>2 adet LGS okuduğunu anlama sorusu</strong> yer alır.
+          </p>
+        </div>
+        <button type="button" class="btn-editorial primary" style="background:var(--theme-primary);" onclick="setUnitSubMode('${unitKey}', 'test')">
+          ✍️ 3×20 Ünite Testlerine Geç →
+        </button>
+      </div>
+
+      ${passages.map((rp) => renderSingleReadingPassageCard(rp)).join("")}
+    `;
+  }
+
+  function renderSingleReadingPassageCard(rp) {
+    return `
+      <article class="reading-passage-card" id="rp-${rp.id}">
+        <header class="reading-card-header">
+          <div>
+            <span class="q-num-badge" style="margin-right:0.5rem;">OKUMA METNİ ${rp.num}</span>
+            <span class="topic-badge">${rp.typeBadge || "LGS READING"}</span>
+            <h3 style="font-family:var(--font-serif); font-size:1.3rem; margin-top:0.4rem;">${rp.title}</h3>
+          </div>
+          <span class="diff-badge level-2">${rp.level || "Beceri Temelli"}</span>
+        </header>
+
+        <div class="reading-bilingual-grid">
+          <div class="reading-en-box">
+            <div style="font-family:var(--font-mono); font-size:0.72rem; font-weight:800; color:var(--theme-primary); margin-bottom:0.5rem;">
+              🇬🇧 ENGLISH READING PASSAGE
+            </div>
+            ${rp.enHtml || ""}
+          </div>
+          <div class="reading-tr-box">
+            <div style="font-family:var(--font-mono); font-size:0.72rem; font-weight:800; color:var(--ink-muted); margin-bottom:0.5rem;">
+              🇹🇷 TÜRKÇE ÇEVİRİSİ &amp; ANLAM TAKİBİ
+            </div>
+            ${rp.trHtml || ""}
+          </div>
+        </div>
+
+        ${
+          Array.isArray(rp.vocabNotes) && rp.vocabNotes.length > 0
+            ? `
+          <div class="reading-vocab-strip">
+            <span style="font-family:var(--font-mono); font-size:0.74rem; font-weight:800; color:var(--ink-primary);">🔑 KRİTİK KELİMELER:</span>
+            ${rp.vocabNotes.map((vn) => `<span class="rv-pill"><strong>${vn.en}:</strong> ${vn.tr}</span>`).join("")}
+          </div>
+        `
+            : ""
+        }
+
+        ${
+          Array.isArray(rp.lgsTakeaways) && rp.lgsTakeaways.length > 0
+            ? `
+          <div style="padding:0.9rem 1.5rem; background:#FFFBEB; border-bottom:1px solid #FDE68A; font-size:0.85rem; color:#92400E;">
+            <strong>📌 Metinden Çıkarılacak LGS İpuçları:</strong>
+            <ul style="margin:0.35rem 0 0 1.2rem;">
+              ${rp.lgsTakeaways.map((t) => `<li>${t}</li>`).join("")}
+            </ul>
+          </div>
+        `
+            : ""
+        }
+
+        <div style="padding:1.25rem 1.5rem; background:var(--bg-paper);">
+          <div style="font-family:var(--font-mono); font-size:0.78rem; font-weight:800; color:var(--ink-primary); margin-bottom:0.85rem;">
+            ✍️ BU METİNLE İLGİLİ LGS SORULARI (ŞIKLARA TIKLAYARAK ÇÖZÜN):
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(340px, 1fr)); gap:1.15rem;">
+            ${(rp.questions || [])
+              .map((rq) => {
+                const userAns = state.answers[rq.id];
+                const isAnswered = Boolean(userAns);
+                return `
+                  <div style="background:#FFFFFF; border:1.5px solid var(--ink-primary); border-radius:var(--radius-sm); padding:1.1rem;">
+                    <div style="font-weight:800; font-size:0.95rem; margin-bottom:0.75rem; color:var(--ink-primary);">
+                      ${rq.num}. ${rq.question}
+                    </div>
+                    <div class="options-list">
+                      ${["A", "B", "C", "D"]
+                        .map((letter) => {
+                          let cls = "option-btn";
+                          if (userAns === letter) {
+                            cls += letter === rq.correct ? " correct" : " wrong";
+                          } else if (isAnswered && letter === rq.correct) {
+                            cls += " correct";
+                          }
+                          return `
+                            <button type="button" class="${cls}" style="padding:0.55rem 0.8rem; font-size:0.86rem;" onclick="selectOption('${rq.id}', '${letter}')">
+                              <span class="opt-letter" style="width:24px; height:24px; font-size:0.75rem;">${letter}</span>
+                              <span>${rq.options[letter]}</span>
+                            </button>
+                          `;
+                        })
+                        .join("")}
+                    </div>
+                    ${
+                      isAnswered
+                        ? `
+                      <div class="question-explanation" style="margin-top:0.8rem; padding:0.75rem; font-size:0.82rem; ${userAns === rq.correct ? "" : "background:#FEF2F2; border-color:#FCA5A5; border-left-color:#DC2626; color:#7F1D1D;"}">
+                        <strong>${userAns === rq.correct ? "✅ DOĞRU!" : `❌ YANLIŞ (Doğru: ${rq.correct})`}</strong>
+                        <div>${rq.explanation}</div>
+                      </div>
+                    `
+                        : ""
+                    }
+                  </div>
+                `;
+              })
+              .join("")}
+          </div>
+        </div>
+      </article>
+    `;
+  }
+
+  // Sub-view 2C: Unit Vocabulary & Pronunciation Cards
   function renderUnitVocabularyView(unitKey, unitData) {
     const vocabCats = unitData.vocabulary || [];
     return `
@@ -917,7 +977,7 @@
           </p>
         </div>
         <button type="button" class="btn-editorial primary" style="background:var(--theme-primary);" onclick="setUnitSubMode('${unitKey}', 'test')">
-          ✍️ 20 Soruluk Ünite Testine Geç →
+          ✍️ 3×20 Ünite Testlerine Geç →
         </button>
       </div>
 
@@ -964,21 +1024,21 @@
     `;
   }
 
-  // Sub-view 2C: Worked Examples (Çözümlü Rehber Sorular)
+  // Sub-view 2D: Worked Examples (Çözümlü Rehber Sorular)
   function renderUnitWorkedExamples(unitKey, unitData) {
     const examples = unitData.workedExamples || [];
     return `
       <div class="vocab-controls-bar">
         <div>
           <strong style="font-family:var(--font-serif); font-size:1.15rem;">
-            💡 ${unitData.number}. Ünite (${unitData.title}) Adım Adım Çözümlü Rehber Sorular
+            💡 ${unitData.number}. Ünite (${unitData.title}) Adım Adım Çözümlü Rehber Sorular (${examples.length} Çözümlü Soru)
           </strong>
           <p style="font-size:0.84rem; color:var(--ink-secondary);">
-            Ünite testine geçmeden önce MEB'in soru kurgulama mantığını ve çeldiricileri nasıl eleyeceğinizi adım adım inceleyin.
+            Ünite testlerine geçmeden önce MEB'in soru kurgulama mantığını ve çeldiricileri nasıl eleyeceğinizi adım adım inceleyin.
           </p>
         </div>
         <button type="button" class="btn-editorial primary" style="background:var(--theme-primary);" onclick="setUnitSubMode('${unitKey}', 'test')">
-          ✍️ 20 Soruluk Ünite Testine Başla →
+          ✍️ 3×20 Ünite Testlerine Başla →
         </button>
       </div>
 
@@ -1022,22 +1082,42 @@
     `;
   }
 
-  // Sub-view 2D: Quick True/False & Concept Check Activities
+  // Sub-view 2E: Expanded Interactive Exercises (30 Cloze Fill-in-the-blank + 35 True/False)
   function renderUnitQuickActivities(unitKey, unitData) {
+    const clozeList = unitData.clozeExercises || [];
     const acts = unitData.quickActivities || [];
     return `
       <div class="vocab-controls-bar">
         <div>
-          <strong style="font-family:var(--font-serif); font-size:1.15rem;">
-            🎯 ${unitData.number}. Ünite (${unitData.title}) İnteraktif Doğru / Yanlış &amp; Tuzak Avcısı Etkinliği
+          <strong style="font-family:var(--font-serif); font-size:1.2rem;">
+            🎯 ${unitData.number}. Ünite (${unitData.title}) İnteraktif Alıştırma &amp; Pekiştirme Merkezi (${clozeList.length + acts.length} Alıştırma)
           </strong>
-          <p style="font-size:0.84rem; color:var(--ink-secondary);">
-            Aşağıdaki ifadelerin LGS kurallarına göre <strong>DOĞRU (TRUE)</strong> mu yoksa <strong>YANLIŞ (FALSE)</strong> mı olduğunu seçerek bilginizi anında test edin.
+          <p style="font-size:0.85rem; color:var(--ink-secondary);">
+            1. Bölümde <strong>${clozeList.length} İnteraktif Boşluk Doldurma (Cloze Test)</strong>, 2. Bölümde ise <strong>${acts.length} Doğru / Yanlış Tuzak Avcısı</strong> etkinliği yer almaktadır.
           </p>
         </div>
         <button type="button" class="btn-editorial primary" style="background:var(--theme-primary);" onclick="setUnitSubMode('${unitKey}', 'test')">
-          ✍️ 20 Soruluk Ünite Testine Başla →
+          ✍️ 3×20 Ünite Testlerine Başla →
         </button>
+      </div>
+
+      ${
+        clozeList.length > 0
+          ? `
+        <div class="section-heading-bar">
+          <h3>✏️ Bölüm A: İnteraktif Boşluk Doldurma &amp; Kalıp Tamamlama (${clozeList.length} Alıştırma)</h3>
+          <span>DOĞRU KELİMEYİ VEYA KALIBI SEÇİN</span>
+        </div>
+        <div class="cloze-grid">
+          ${clozeList.map((cl) => renderSingleClozeCard(cl)).join("")}
+        </div>
+      `
+          : ""
+      }
+
+      <div class="section-heading-bar">
+        <h3>⚡ Bölüm B: Doğru / Yanlış (True / False) &amp; LGS Tuzak Avcısı (${acts.length} Etkinlik)</h3>
+        <span>İFADENİN DOĞRU MU YANLIŞ MI OLDUĞUNU SEÇİN</span>
       </div>
 
       <div class="tf-activity-grid">
@@ -1050,7 +1130,7 @@
               <div class="tf-card">
                 <div>
                   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-                    <span class="q-num-badge" style="font-size:0.74rem; padding:0.15rem 0.5rem;">ETKİNLİK ${idx + 1}</span>
+                    <span class="q-num-badge" style="font-size:0.74rem; padding:0.15rem 0.5rem;">DOĞRU/YANLIŞ ${idx + 1}</span>
                     <span style="font-family:var(--font-mono); font-size:0.72rem; color:var(--ink-muted);">LGS Tuzak Kontrolü</span>
                   </div>
                   <p style="font-size:0.95rem; font-weight:700; color:var(--ink-primary); line-height:1.5;">
@@ -1095,13 +1175,167 @@
     `;
   }
 
+  function renderSingleClozeCard(cl) {
+    const userAns = state.answers[cl.id];
+    const isAnswered = Boolean(userAns);
+    return `
+      <div class="cloze-card">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.45rem;">
+            <span class="q-num-badge" style="font-size:0.72rem; padding:0.15rem 0.5rem;">ALIŞTIRMA ${cl.num}</span>
+            <span class="topic-badge" style="font-size:0.7rem;">${cl.category || "Cloze Test"}</span>
+          </div>
+          <p style="font-size:0.94rem; font-weight:700; color:var(--ink-primary); line-height:1.55;">
+            ${cl.sentence}
+          </p>
+        </div>
+        <div>
+          <div class="cloze-options-grid">
+            ${["A", "B", "C", "D"]
+              .map((letter) => {
+                let cls = "option-btn";
+                if (userAns === letter) {
+                  cls += letter === cl.correct ? " correct" : " wrong";
+                } else if (isAnswered && letter === cl.correct) {
+                  cls += " correct";
+                }
+                return `
+                  <button type="button" class="${cls}" style="padding:0.45rem 0.65rem; font-size:0.83rem;" onclick="selectOption('${cl.id}', '${letter}')">
+                    <span class="opt-letter" style="width:22px; height:22px; font-size:0.72rem;">${letter}</span>
+                    <span>${cl.options[letter]}</span>
+                  </button>
+                `;
+              })
+              .join("")}
+          </div>
+          ${
+            isAnswered
+              ? `
+            <div style="margin-top:0.65rem; padding:0.6rem 0.75rem; border-radius:6px; font-size:0.8rem; background:${userAns === cl.correct ? "#DCFCE7" : "#FEE2E2"}; color:${userAns === cl.correct ? "#14532D" : "#7F1D1D"}; border:1px solid ${userAns === cl.correct ? "#86EFAC" : "#FCA5A5"};">
+              <strong>${userAns === cl.correct ? "✅ Doğru!" : `❌ Yanlış (Doğru Cevap: ${cl.correct})`}</strong> ${cl.explanation}
+            </div>
+          `
+              : ""
+          }
+        </div>
+      </div>
+    `;
+  }
+
   window.answerTFActivity = function (actId, val) {
     state.tfAnswers[actId] = val;
+    saveState();
+    renderCurrentView();
+  };
+
+  // Sub-view 2F: Multi-Test Selector for Unit (Test 1 • Test 2 • Test 3 = 60 Questions per unit!)
+  function renderUnitMultiTestView(unitKey, unitData) {
+    const tests = getUnitTestsList(unitKey);
+    const activeIdx = Math.min(state.activeUnitTestIdx[unitKey] || 0, tests.length - 1);
+    const activeTest = tests[activeIdx] || tests[0];
+
+    return `
+      <div class="section-heading-bar">
+        <h3>✍️ ${unitData.number}. Ünite (${unitData.title}) Kademeli Test Serisi (${tests.length} Test • ${tests.length * 20} Soru)</h3>
+        <span>TEST SEÇİN VE OPTİK FORMLA ÇÖZÜN</span>
+      </div>
+
+      <div class="test-selector-bar">
+        ${tests
+          .map((t, idx) => {
+            const st = getQuestionSetStats(t.questions || []);
+            return `
+              <button type="button" class="test-select-card ${idx === activeIdx ? "active" : ""}" onclick="selectUnitTest('${unitKey}', ${idx})">
+                <div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
+                    <span class="q-num-badge" style="background:var(--theme-primary);">ÜNİTE ${unitData.number} • TEST ${idx + 1}</span>
+                    <span style="font-family:var(--font-mono); font-size:0.75rem; font-weight:800; color:var(--ink-secondary);">${st.solved}/${st.total} Çözüldü</span>
+                  </div>
+                  <div style="font-family:var(--font-serif); font-size:1.05rem; font-weight:800; color:var(--ink-primary);">
+                    ${t.title}
+                  </div>
+                  <p style="font-size:0.8rem; color:var(--ink-secondary); margin-top:0.25rem;">
+                    ${t.description}
+                  </p>
+                </div>
+                <div style="font-family:var(--font-mono); font-size:0.75rem; color:var(--theme-primary); font-weight:700; padding-top:0.4rem; border-top:1px dashed var(--border-strong);">
+                  Doğru: ${st.correct} • Yanlış: ${st.wrong} • Net: ${st.net}
+                </div>
+              </button>
+            `;
+          })
+          .join("")}
+      </div>
+
+      ${renderQuestionTestRunner(activeTest.testId, activeTest.title, activeTest.questions || [])}
+    `;
+  }
+
+  window.selectUnitTest = function (unitKey, idx) {
+    state.activeUnitTestIdx[unitKey] = idx;
+    state.testFilterDiff = "all";
     renderCurrentView();
   };
 
   // ==========================================================================
-  // VIEW 3: VOCABULARY & SYNONYMS LABORATORY (KELİME ATÖLYESİ)
+  // VIEW 3: GLOBAL READING PASSAGES HUB (48 OKUMA PARÇASI ATÖLYESİ)
+  // ==========================================================================
+  function renderReadingHubView() {
+    const d = window.LGS_DATA || {};
+    const allPassages = [];
+    ["unit1", "unit2", "unit3"].forEach((uKey) => {
+      const u = d[uKey];
+      if (u && Array.isArray(u.readingPassages)) {
+        u.readingPassages.forEach((rp) => {
+          allPassages.push(Object.assign({}, rp, { unitKey: uKey }));
+        });
+      }
+    });
+
+    const filtered = allPassages.filter((rp) => {
+      if (state.readingHubFilterUnit === "all") return true;
+      return rp.unitKey === state.readingHubFilterUnit;
+    });
+
+    return `
+      <section class="unit-workspace-header">
+        <div class="unit-header-top">
+          <span class="unit-kicker">ÇİFT DİLLİ LGS OKUMA PARÇALARI VE METİN ANALİZİ ATÖLYESİ</span>
+        </div>
+        <h2>Ünite 1, 2 ve 3 Kapsamlı Okuma Parçaları &amp; Metin Soruları (${allPassages.length} Özel Metin + Konu Fasiküllerindeki 18 Metin = 48 Metin)</h2>
+        <p class="unit-subtitle">
+          LGS'de uzun paragraf, e-posta, günlük, broşür ve anket raporlarını hızlı okuyup doğru yorumlamak için hazırlanan çift dilli (İngilizce – Türkçe) okuma atölyesi ve metin altı soruları.
+        </p>
+      </section>
+
+      <div class="vocab-controls-bar">
+        <div class="difficulty-filter-group">
+          <button type="button" class="diff-filter-btn ${state.readingHubFilterUnit === "all" ? "active" : ""}" onclick="setReadingHubFilter('all')">
+            Tüm Üniteler (${allPassages.length} Metin • ${allPassages.length * 2} Soru)
+          </button>
+          <button type="button" class="diff-filter-btn ${state.readingHubFilterUnit === "unit1" ? "active" : ""}" onclick="setReadingHubFilter('unit1')">
+            1. Ünite: Friendship (10 Metin)
+          </button>
+          <button type="button" class="diff-filter-btn ${state.readingHubFilterUnit === "unit2" ? "active" : ""}" onclick="setReadingHubFilter('unit2')">
+            2. Ünite: Teen Life (10 Metin)
+          </button>
+          <button type="button" class="diff-filter-btn ${state.readingHubFilterUnit === "unit3" ? "active" : ""}" onclick="setReadingHubFilter('unit3')">
+            3. Ünite: In the Kitchen (10 Metin)
+          </button>
+        </div>
+      </div>
+
+      ${filtered.map((rp) => renderSingleReadingPassageCard(rp)).join("")}
+    `;
+  }
+
+  window.setReadingHubFilter = function (unitKey) {
+    state.readingHubFilterUnit = unitKey;
+    renderCurrentView();
+  };
+
+  // ==========================================================================
+  // VIEW 4: VOCABULARY & EXERCISES LABORATORY (KELİME & ALIŞTIRMA MERKEZİ)
   // ==========================================================================
   function getAllVocabItems() {
     const d = window.LGS_DATA || {};
@@ -1151,7 +1385,6 @@
         </p>
       </section>
 
-      <!-- İNTERAKTİF EZBER KARTI (FLASHCARD) PANELİ -->
       ${
         fcWord
           ? `
@@ -1193,7 +1426,6 @@
           : ""
       }
 
-      <!-- FİLTRE VE ARAMA ÇUBUĞU -->
       <div class="vocab-controls-bar">
         <div class="difficulty-filter-group">
           <button type="button" class="diff-filter-btn ${state.vocabFilterUnit === "all" ? "active" : ""}" onclick="setVocabUnitFilter('all')">
@@ -1260,33 +1492,84 @@
   };
 
   // ==========================================================================
-  // VIEW 4: INTERACTIVE TEST & 60-QUESTION GRAND EXAM RUNNER + OPTİK FORM
+  // VIEW 5: 2 × 60-QUESTION GRAND EXAM RUNNER + OPTİK FORM
   // ==========================================================================
   function renderGrandExamView() {
     const d = window.LGS_DATA || {};
-    const questions = d.grandExam || [];
+    const exams = [
+      {
+        key: "grandExam",
+        title: "Büyük LGS Kamp Denemesi - 1 (60 Soru • Kademeli Sınav)",
+        desc: "1., 2. ve 3. ünitelerin tüm kazanımlarını 1'den 60'a doğru 4 zorluk kademesinde ölçen 1. Büyük Kamp Denemesi.",
+        questions: d.grandExam || []
+      },
+      {
+        key: "grandExam2",
+        title: "Büyük LGS Kamp Denemesi - 2 (60 Soru • Türkiye Geneli İleri Seviye)",
+        desc: "Yeni nesil tablo, sütun/daire grafiği, çoklu kısıt ve üniteler arası sentez sorularından oluşan 2. Büyük Kamp Denemesi.",
+        questions: d.grandExam2 || []
+      }
+    ];
+
+    const activeIdx = state.activeGrandExamIdx || 0;
+    const currentExam = exams[activeIdx] || exams[0];
+
     return `
       <section class="unit-workspace-header" style="border-left-color: var(--optik-pink);">
         <div class="unit-header-top">
           <span class="unit-kicker" style="background:var(--optik-pink-soft); color:var(--optik-pink); border-color:#FBCFE8;">
-            60 SORULUK BÜYÜK LGS KAMP DENEMESİ • ÜNİTE 1, 2 VE 3 KAPSAMLI
+            2 ADET 60 SORULUK BÜYÜK LGS KAMP DENEMESİ (TOPLAM 120 SORU) • ÜNİTE 1, 2 VE 3
           </span>
         </div>
-        <h2>8. Sınıf LGS İngilizce 1., 2. ve 3. Ünite 60 Soruluk Kademeli Deneme Sınavı</h2>
+        <h2>8. Sınıf LGS İngilizce 1., 2. ve 3. Ünite 2×60 Soruluk Kademeli Deneme Sınavları</h2>
         <p class="unit-subtitle">
-          Bu sınav <strong>1. sorudan 60. soruya doğru kademeli olarak zorlaşan</strong> 4 aşamalı (Kolay → Orta → Orta-Zor → LGS Derece) mimariyle hazırlanmıştır. Sağ taraftaki <strong>MEB LGS Optik Formu</strong> üzerinden tüm işaretlemelerinizi ve netinizi takip edebilirsiniz.
+          Aşağıdan <strong>Deneme - 1 (60 Soru)</strong> veya <strong>Deneme - 2 (60 Soru)</strong> sınavını seçerek sağ taraftaki <strong>MEB LGS Optik Formu</strong> ile çözebilirsiniz.
         </p>
       </section>
 
-      ${renderQuestionTestRunner("grandExam", "60 Soruluk Büyük LGS Kamp Denemesi", questions)}
+      <div class="test-selector-bar">
+        ${exams
+          .map((ex, idx) => {
+            const st = getQuestionSetStats(ex.questions);
+            return `
+              <button type="button" class="test-select-card ${idx === activeIdx ? "active" : ""}" onclick="selectGrandExam(${idx})">
+                <div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
+                    <span class="q-num-badge" style="background:var(--optik-pink);">60 SORULUK DENEME ${idx + 1}</span>
+                    <span style="font-family:var(--font-mono); font-size:0.75rem; font-weight:800; color:var(--ink-secondary);">${st.solved}/${st.total} Çözüldü</span>
+                  </div>
+                  <div style="font-family:var(--font-serif); font-size:1.1rem; font-weight:800; color:var(--ink-primary);">
+                    ${ex.title}
+                  </div>
+                  <p style="font-size:0.82rem; color:var(--ink-secondary); margin-top:0.25rem;">
+                    ${ex.desc}
+                  </p>
+                </div>
+                <div style="font-family:var(--font-mono); font-size:0.76rem; color:var(--optik-pink); font-weight:700; padding-top:0.4rem; border-top:1px dashed var(--border-strong);">
+                  Doğru: ${st.correct} • Yanlış: ${st.wrong} • LGS Net: ${st.net}
+                </div>
+              </button>
+            `;
+          })
+          .join("")}
+      </div>
+
+      ${renderQuestionTestRunner(currentExam.key, currentExam.title, currentExam.questions)}
     `;
   }
+
+  window.selectGrandExam = function (idx) {
+    state.activeGrandExamIdx = idx;
+    state.testFilterDiff = "all";
+    renderCurrentView();
+  };
 
   function renderQuestionTestRunner(testKey, testTitle, questions) {
     const stats = getQuestionSetStats(questions);
     const isInstant = state.examCheckMode === "instant";
     const isSubmitted = state.examSubmitted[testKey];
     const showSolutions = isInstant || isSubmitted;
+    const isGrand = testKey === "grandExam" || testKey === "grandExam2";
 
     const filteredQuestions = questions.filter((q) => {
       if (state.testFilterDiff === "all") return true;
@@ -1308,10 +1591,10 @@
             🟡 Kademe 2: Orta
           </button>
           <button type="button" class="diff-filter-btn ${state.testFilterDiff === "3" ? "active" : ""}" onclick="setTestDiffFilter('3')">
-            🟠 Kademe 3: ${testKey === "grandExam" ? "Orta-Zor" : "Zor (Yeni Nesil)"}
+            🟠 Kademe 3: ${isGrand ? "Orta-Zor" : "Zor (Yeni Nesil)"}
           </button>
           ${
-            testKey === "grandExam"
+            isGrand
               ? `
             <button type="button" class="diff-filter-btn ${state.testFilterDiff === "4" ? "active" : ""}" onclick="setTestDiffFilter('4')">
               🔴 Kademe 4: Zor (LGS Derece)
@@ -1334,14 +1617,12 @@
       ${isSubmitted ? renderDiagnosticScorecard(testTitle, questions) : ""}
 
       <div class="test-layout-grid">
-        <!-- SORU AKISI -->
         <div>
           ${filteredQuestions
             .map((q) => renderSingleQuestionCard(q, showSolutions))
             .join("")}
         </div>
 
-        <!-- MEB LGS OPTİK FORM -->
         <aside class="optik-sidebar">
           <div class="optik-header">
             MEB LGS İNGİLİZCE OPTİK FORMU
@@ -1389,7 +1670,7 @@
             <button type="button" class="btn-editorial primary" style="width:100%; justify-content:center; background:var(--optik-pink); font-size:0.82rem; padding:0.55rem;" onclick="submitTestForReport('${testKey}')">
               📊 Sınavı Bitir &amp; Karnemi Göster
             </button>
-            <button type="button" class="btn-editorial secondary" style="width:100%; justify-content:center; font-size:0.78rem; padding:0.45rem;" onclick="clearTestAnswers('${testKey}')">
+            <button type="button" class="btn-editorial secondary" style="width:100%; justify-content:center; font-size:0.78rem; padding:0.45rem;" onclick="clearTestAnswers('${testKey}', ${JSON.stringify(questions.map((q) => q.id)).replace(/"/g, "'")})">
               ↺ Bu Testin İşaretlerini Temizle
             </button>
           </div>
@@ -1521,17 +1802,10 @@
     window.scrollTo({ top: 180, behavior: "smooth" });
   };
 
-  window.clearTestAnswers = function (testKey) {
-    const d = window.LGS_DATA || {};
-    let qList = [];
-    if (testKey === "grandExam") {
-      qList = d.grandExam || [];
-    } else if (d[testKey]) {
-      qList = d[testKey].unitTest || [];
+  window.clearTestAnswers = function (testKey, qIds) {
+    if (Array.isArray(qIds)) {
+      qIds.forEach((id) => delete state.answers[id]);
     }
-    qList.forEach((q) => {
-      delete state.answers[q.id];
-    });
     state.examSubmitted[testKey] = false;
     saveState();
     renderCurrentView();
@@ -1572,6 +1846,8 @@
       viewport.innerHTML = renderHomeView();
     } else if (["unit1", "unit2", "unit3"].includes(state.activeView)) {
       viewport.innerHTML = renderUnitWorkspace(state.activeView);
+    } else if (state.activeView === "reading-hub") {
+      viewport.innerHTML = renderReadingHubView();
     } else if (state.activeView === "vocab-lab") {
       viewport.innerHTML = renderVocabLabView();
     } else if (state.activeView === "grand-exam") {
@@ -1585,7 +1861,6 @@
     normalizeAllData();
     loadState();
 
-    // Nav tabs
     document.querySelectorAll(".nav-tab").forEach((btn) => {
       btn.addEventListener("click", () => {
         const target = btn.getAttribute("data-target");
@@ -1593,26 +1868,24 @@
       });
     });
 
-    // Brand click -> Home
     const brandTrigger = document.getElementById("brand-home-trigger");
     if (brandTrigger) {
       brandTrigger.addEventListener("click", () => navigateTo("home"));
     }
 
-    // Reset all progress
     const btnReset = document.getElementById("btn-reset-progress");
     if (btnReset) {
       btnReset.addEventListener("click", () => {
-        if (confirm("Tüm testlerdeki işaretlemeleriniz sıfırlanacak. Emin misiniz?")) {
+        if (confirm("Tüm testlerdeki ve alıştırmalardaki işaretlemeleriniz sıfırlanacak. Emin misiniz?")) {
           state.answers = {};
-          state.examSubmitted = { unit1: false, unit2: false, unit3: false, grandExam: false };
+          state.tfAnswers = {};
+          state.examSubmitted = {};
           saveState();
           renderCurrentView();
         }
       });
     }
 
-    // Quick Search Modal
     const modal = document.getElementById("search-modal");
     const btnOpenSearch = document.getElementById("btn-open-search");
     const btnCloseSearch = document.getElementById("btn-close-search");

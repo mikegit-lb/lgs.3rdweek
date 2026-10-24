@@ -1664,6 +1664,136 @@ details.inline-quiz-details summary:hover {
   font-size: 0.85rem;
 }
 
+/* Reading Passage Studio Cards */
+.reading-passage-card {
+  background: var(--bg-surface);
+  border: 2px solid var(--ink-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-paper);
+  margin-bottom: 2.25rem;
+  overflow: hidden;
+}
+
+.reading-card-header {
+  background: var(--bg-paper);
+  border-bottom: 1.5px solid var(--ink-primary);
+  padding: 1.15rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.reading-bilingual-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  border-bottom: 1.5px solid var(--border-strong);
+}
+
+@media (max-width: 920px) {
+  .reading-bilingual-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.reading-en-box {
+  padding: 1.35rem 1.5rem;
+  font-size: 0.96rem;
+  line-height: 1.75;
+  background: #FFFFFF;
+  border-right: 1px dashed var(--border-strong);
+}
+
+.reading-tr-box {
+  padding: 1.35rem 1.5rem;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  background: #FAF7F2;
+  color: var(--ink-secondary);
+}
+
+.reading-vocab-strip {
+  padding: 0.9rem 1.5rem;
+  background: var(--theme-soft);
+  border-bottom: 1px solid var(--theme-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.rv-pill {
+  background: #FFFFFF;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+.rv-pill strong {
+  color: var(--theme-primary);
+}
+
+/* Test Selector Bar (Test 1 / Test 2 / Test 3 & Deneme 1 / Deneme 2) */
+.test-selector-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.test-select-card {
+  background: var(--bg-surface);
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 1.1rem 1.25rem;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.test-select-card:hover {
+  border-color: var(--ink-primary);
+  transform: translateY(-2px);
+}
+
+.test-select-card.active {
+  border-color: var(--ink-primary);
+  background: var(--theme-soft);
+  box-shadow: 4px 4px 0px var(--ink-primary);
+}
+
+/* Cloze / Fill-in-the-blank Cards */
+.cloze-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 1.15rem;
+  margin-bottom: 2rem;
+}
+
+.cloze-card {
+  background: var(--bg-surface);
+  border: 1.5px solid var(--ink-primary);
+  border-radius: var(--radius-sm);
+  padding: 1.15rem;
+  box-shadow: var(--shadow-xs);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.cloze-options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
 /* ==========================================================================
    VOCABULARY FLASHCARDS & AUDIO LABORATORY
    ========================================================================== */
