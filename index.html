@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LGS İngilizce Kamp Atlası | 8. Sınıf 1., 2. ve 3. Ünite Detaylı Anlatım & 120 Yeni Nesil Soru</title>
+  <meta name="description" content="MEB 8. Sınıf LGS İngilizce 1. Ünite (Friendship), 2. Ünite (Teen Life) ve 3. Ünite (In the Kitchen) detaylı konu anlatımı, eş anlamlı kelimeler, görsel kartlar, ünite sonu 20'şer soruluk testler ve 60 soruluk kademeli LGS deneme sınavı." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,600&family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body data-unit-theme="unit1">
+
+  <!-- ÜST BİLGİ VE CANLI PERFORMANS ÇUBUĞU -->
+  <div class="top-utility-bar">
+    <div class="top-utility-inner">
+      <div class="utility-brand-tag">
+        <span class="utility-dot"></span>
+        <span>MEB 8. SINIF LGS İNGİLİZCE MÜFREDATI • BECERİ TEMELLİ ÇALIŞMA FASİKÜLÜ</span>
+      </div>
+      <div class="utility-stats">
+        <span class="stat-pill" title="Toplam çözülen test sorusu">
+          Çözülen: <strong id="stat-solved">0 / 120</strong>
+        </span>
+        <span class="stat-pill" title="Doğru ve yanlış sayıları">
+          D / Y: <strong id="stat-dy">0 D • 0 Y</strong>
+        </span>
+        <span class="stat-pill" title="3 yanlış 1 doğruyu götürür kuralına göre LGS netiniz">
+          LGS Net: <strong id="stat-net">0.00</strong>
+        </span>
+        <button type="button" class="utility-btn" id="btn-reset-progress" title="Tüm test işaretlerini sıfırla">
+          ↺ İlerlemeyi Sıfırla
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ANA EDİTÖRYAL BAŞLIK VE NAVİGASYON -->
+  <header class="site-header">
+    <div class="header-main">
+      <div class="brand-block" id="brand-home-trigger">
+        <div class="brand-emblem">
+          <span class="emblem-top">8.SINIF</span>
+          <span class="emblem-main">LGS</span>
+        </div>
+        <div class="brand-titles">
+          <h1>LGS İngilizce Kamp Atlası</h1>
+          <p>1. Friendship • 2. Teen Life • 3. In the Kitchen — Konu Fasikülü &amp; Soru Bankası</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button type="button" class="quick-search-btn" id="btn-open-search">
+          <span>🔍 Hızlı Kelime &amp; Eş Anlamlı Sözlüğü</span>
+          <kbd>Ctrl + K</kbd>
+        </button>
+      </div>
+    </div>
+
+    <nav class="main-nav" aria-label="Ana Bölümler">
+      <button type="button" class="nav-tab active" data-target="home">
+        <span class="tab-num">REHBER</span>
+        <span>Kamp Özeti &amp; Yol Haritası</span>
+      </button>
+      <button type="button" class="nav-tab" data-target="unit1">
+        <span class="tab-num">ÜNİTE 1</span>
+        <span>Friendship (Konu + 20 Soru)</span>
+      </button>
+      <button type="button" class="nav-tab" data-target="unit2">
+        <span class="tab-num">ÜNİTE 2</span>
+        <span>Teen Life (Konu + 20 Soru)</span>
+      </button>
+      <button type="button" class="nav-tab" data-target="unit3">
+        <span class="tab-num">ÜNİTE 3</span>
+        <span>In the Kitchen (Konu + 20 Soru)</span>
+      </button>
+      <button type="button" class="nav-tab" data-target="vocab-lab">
+        <span class="tab-num">SÖZLÜK</span>
+        <span>Kelime &amp; Eş Anlamlılar Atölyesi</span>
+      </button>
+      <button type="button" class="nav-tab" data-target="grand-exam">
+        <span class="tab-num">60 SORU</span>
+        <span>Büyük LGS Kamp Denemesi (Ünite 1-2-3)</span>
+      </button>
+    </nav>
+  </header>
+
+  <!-- DİNAMİK İÇERİK ALANI -->
+  <main class="main-container" id="app-viewport">
+    <!-- JS tarafından doldurulur -->
+  </main>
+
+  <!-- HIZLI KELİME VE EŞ ANLAMLI ARAMA MODALI -->
+  <div class="modal-backdrop" id="search-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-window">
+      <div class="modal-header">
+        <h3 id="modal-title" style="font-family: var(--font-serif); font-size: 1.2rem;">
+          🔍 LGS Eş Anlamlılar (Synonyms) &amp; Kelime Arama Motoru
+        </h3>
+        <button type="button" class="btn-editorial secondary" id="btn-close-search" style="padding: 0.3rem 0.7rem; font-size: 0.8rem;">
+          Kapat (ESC)
+        </button>
+      </div>
+      <div class="modal-body">
+        <input
+          type="text"
+          id="modal-search-input"
+          class="vocab-search-input"
+          style="width: 100%; margin-bottom: 1rem;"
+          placeholder="İngilizce veya Türkçe kelime yazın (Örn: count on, terrific, sneaky, strainer, güvenilir, süzgeç)..."
+        />
+        <div id="modal-search-results"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ALT BİLGİ -->
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div>
+        <strong style="color: #FFFFFF; font-family: var(--font-serif); font-size: 1.05rem;">
+          LGS İngilizce Kamp Atlası • 8. Sınıf 1., 2. ve 3. Ünite
+        </strong>
+        <p style="margin-top: 0.25rem;">
+          Milli Eğitim Bakanlığı (MEB) 8. Sınıf İngilizce Dersi Öğretim Programı kazanımlarına ve Beceri Temelli Yeni Nesil LGS soru tiplerine %100 uyumlu olarak hazırlanmıştır.
+        </p>
+      </div>
+      <div style="font-family: var(--font-mono); font-size: 0.78rem; color: #D4D4D8;">
+        3 Ünite Detaylı Fasikül • 24 Çözümlü Rehber Soru • 3×20 Ünite Testi • 60 Soruluk Kademeli Deneme
+      </div>
+    </div>
+  </footer>
+
+  <!-- VERİ MODÜLLERİ VE UYGULAMA MOTORU -->
+  <script src="js/unit1-content.js"></script>
+  <script src="js/unit2-content.js"></script>
+  <script src="js/unit3-content.js"></script>
+  <script src="js/grand-exam-60.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
